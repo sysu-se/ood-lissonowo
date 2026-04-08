@@ -1,27 +1,32 @@
 <script>
-	import { userGrid } from '@sudoku/stores/grid';
 	import { cursor } from '@sudoku/stores/cursor';
 	import { notes } from '@sudoku/stores/notes';
 	import { candidates } from '@sudoku/stores/candidates';
+	import { gameStore } from '../../stores/game';
 
 	// TODO: Improve keyboardDisabled
 	import { keyboardDisabled } from '@sudoku/stores/keyboard';
 
 	function handleKeyButton(num) {
-		if (!$keyboardDisabled) {
+		if (!$keyboardDisabled && $cursor.x !== null && $cursor.y !== null) {
 			if ($notes) {
 				if (num === 0) {
 					candidates.clear($cursor);
 				} else {
 					candidates.add($cursor, num);
 				}
-				userGrid.set($cursor, 0);
+				// 笔记模式下不修改实际数值
 			} else {
 				if ($candidates.hasOwnProperty($cursor.x + ',' + $cursor.y)) {
 					candidates.clear($cursor);
 				}
 
-				userGrid.set($cursor, num);
+				// 使用gameStore进行猜测
+				gameStore.guess({
+					row: $cursor.y,
+					col: $cursor.x,
+					value: num
+				});
 			}
 		}
 	}
@@ -96,11 +101,17 @@
 
 <style>
 	.keyboard-grid {
-		@apply grid grid-rows-2 grid-cols-5 gap-3;
+		display: grid;
+		grid-template-rows: repeat(2, 1fr);
+		grid-template-columns: repeat(5, 1fr);
+		gap: 0.75rem;
 	}
 
 
 	.btn-key {
-		@apply py-4 px-0;
+		padding-top: 1rem;
+		padding-bottom: 1rem;
+		padding-left: 0;
+		padding-right: 0;
 	}
 </style>
