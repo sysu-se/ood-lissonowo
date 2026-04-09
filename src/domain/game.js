@@ -124,8 +124,8 @@ export function createGameFromJSON(json) {
   const currentSudoku = createSudoku(json.currentSudoku);
   const game = createGame({ sudoku: currentSudoku });
 
-  // 清空默认的历史记录
-  game.history = [];
+  // 清空默认的历史记录（使用splice避免重新赋值只读属性）
+  game.history.splice(0);
   game.historyIndex = -1;
   
   // 恢复历史记录
