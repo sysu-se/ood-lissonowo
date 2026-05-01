@@ -27,25 +27,50 @@
 
 <style>
 	.modal {
-		@apply fixed z-40 w-full h-full top-0 left-0 flex items-center justify-center;
+		position: fixed;
+		z-index: 40;
+		width: 100%;
+		height: 100%;
+		top: 0;
+		left: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.modal-overlay {
-		@apply fixed z-40 inset-0 h-full w-full bg-black bg-opacity-50 outline-none cursor-default;
+		position: fixed;
+		z-index: 40;
+		inset: 0;
+		height: 100%;
+		width: 100%;
+		background-color: black;
+		opacity: 0.5;
+		outline: none;
+		cursor: default;
 	}
 
 	.modal-container {
-		@apply z-50 bg-gray-custom w-11/12 mx-auto rounded-xl shadow-lg overflow-y-auto;
+		z-index: 50;
+		background-color: #f8f9fa;
+		width: 91.666667%;
+		margin-left: auto;
+		margin-right: auto;
+		border-radius: 0.75rem;
+		box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+		overflow-y: auto;
 	}
 
 	.modal-content {
-		@apply flex flex-col p-6 text-left;
+		display: flex;
+		flex-direction: column;
+		padding: 1.5rem;
+		text-align: left;
 	}
 
-
-	@screen md {
+	@media (min-width: 768px) {
 		.modal-container {
-			@apply max-w-md;
+			max-width: 28rem;
 		}
 	}
 </style>
