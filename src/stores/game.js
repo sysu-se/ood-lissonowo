@@ -1,5 +1,5 @@
 import { writable } from 'svelte/store';
-import { createSudoku, createGame } from '../domain';
+import { createSudoku, createGame, solveSudoku } from '../domain';
 import { generateSudoku } from '@sudoku/sudoku';
 import { decodeSencode } from '@sudoku/sencode';
 import { difficulty } from '@sudoku/stores/difficulty';
@@ -7,6 +7,7 @@ import { cursor } from '@sudoku/stores/cursor';
 import { timer } from '@sudoku/stores/timer';
 import { hints } from '@sudoku/stores/hints';
 import { gamePaused } from '@sudoku/stores/game';
+import { hintCounts } from './hintCounts';
 
 /**
  * 创建游戏 store 适配器
@@ -15,19 +16,24 @@ import { gamePaused } from '@sudoku/stores/game';
  * - 持有 Game / Sudoku 领域对象
  * - 对外暴露 Svelte 可消费的响应式状态（grid, originalGrid, invalidCells, won 等）
  * - 对外暴露 UI 可调用的方法（guess, undo, redo, startNewGame, startCustomGame）
+ * - 对外暴露提示方法（getCandidates, findHint）
+ * - 对外暴露探索模式方法（startExplore, submitExplore, abandonExplore, backtrackExplore）
  *
  * 领域对象是单一真源（single source of truth），store 是响应式投影。
  */
 export function createGameStore() {
   let game = null;
-
   const { subscribe, set } = writable({
     grid: [],
     originalGrid: [],
     invalidCells: [],
     won: false,
     canUndo: false,
-    canRedo: false
+    canRedo: false,
+    isExploring: false,
+    canBacktrack: false,
+    exploreFailedStates: [],
+    notes: {}
   });
 
   /**
@@ -45,7 +51,11 @@ export function createGameStore() {
       invalidCells: sudoku.getConflicts(),
       won: sudoku.isComplete() && sudoku.getConflicts().length === 0,
       canUndo: game.canUndo(),
-      canRedo: game.canRedo()
+      canRedo: game.canRedo(),
+      isExploring: game.isExploring(),
+      canBacktrack: game.canBacktrackExplore(),
+      exploreFailedStates: game.isExploring() ? game.getExploreFailedStates() : [],
+      notes: game.getAllNotes()
     });
   }
 
@@ -54,8 +64,8 @@ export function createGameStore() {
    * @param {number[][]} puzzle - 9x9 数独题面
    */
   function initGame(puzzle) {
-    // 题面即 originalGrid（不可修改的给定数字）
     const sudoku = createSudoku(puzzle, puzzle);
+
     game = createGame({ sudoku });
 
     updateStore();
@@ -72,9 +82,9 @@ export function createGameStore() {
     cursor.reset();
     timer.reset();
     hints.reset();
+    hintCounts.reset();
     gamePaused.set(false);
     location.hash = '';
-
     initGame(puzzle);
   }
 
@@ -89,6 +99,7 @@ export function createGameStore() {
     cursor.reset();
     timer.reset();
     hints.reset();
+    hintCounts.reset();
     gamePaused.set(false);
 
     initGame(puzzle);
@@ -116,6 +127,101 @@ export function createGameStore() {
     redo() {
       if (!game) return;
       game.redo();
+      updateStore();
+    },
+
+    // ── 三级提示功能 ──
+
+    /**
+     * 第一级：候选数提示
+     * 计算用户选中格子的所有候选数，并返回
+     * @param {number} row
+     * @param {number} col
+     * @returns {number[]} 候选数数组
+     */
+    hintLevel1(row, col) {
+      if (!game) return null;
+      const sudoku = game.getSudoku();
+      if (sudoku.isGiven(row, col) || sudoku.getGrid()[row][col] !== 0) return null;
+      const candidates = sudoku.getCandidates(row, col);
+      if (candidates.length === 0) return null;
+      hintCounts.useLevel1();
+      game.setNotes(row, col, candidates);
+      updateStore();
+      return candidates;
+    },
+
+    /**
+     * 第二级：跳转到候选数最少的格子
+     * 找到当前盘面候选数最少的空格，返回其坐标
+     * @returns {{ row: number, col: number, candidates: number[] } | null}
+     */
+    hintLevel2() {
+      if (!game) return null;
+      const sudoku = game.getSudoku();
+      const hint = sudoku.findHint();
+      if (!hint) return null;
+      hintCounts.useLevel2();
+      return { row: hint.row, col: hint.col, candidates: hint.candidates };
+    },
+
+    /**
+     * 第三级：直接给出答案
+     * 填入用户选中格子的正确答案
+     * @param {number} row
+     * @param {number} col
+     * @returns {number|null} 填入的值，失败返回 null
+     */
+    hintLevel3(row, col) {
+      if (!game) return null;
+      const sudoku = game.getSudoku();
+      if (sudoku.isGiven(row, col) || sudoku.getGrid()[row][col] !== 0) return null;
+      const value = sudoku.getCorrectValue(row, col);
+      if (!value) return null;
+      hintCounts.useLevel3();
+      game.clearNotes(row, col);
+      game.guess({ row, col, value });
+      updateStore();
+      return value;
+    },
+
+    // ── Notes / 候选数操作 ──
+
+    setNotes(row, col, candidates) {
+      if (!game) return;
+      game.setNotes(row, col, candidates);
+      updateStore();
+    },
+
+    clearNotes(row, col) {
+      if (!game) return;
+      game.clearNotes(row, col);
+      updateStore();
+    },
+
+    // ── 探索模式 ──
+
+    startExplore() {
+      if (!game) return;
+      game.startExplore();
+      updateStore();
+    },
+
+    submitExplore() {
+      if (!game) return;
+      game.submitExplore();
+      updateStore();
+    },
+
+    abandonExplore() {
+      if (!game) return;
+      game.abandonExplore();
+      updateStore();
+    },
+
+    backtrackExplore() {
+      if (!game) return;
+      game.backtrackExplore();
       updateStore();
     }
   };

@@ -119,4 +119,5 @@
 	.conflicting-number {
 		@apply text-red-600;
 	}
+
 </style>

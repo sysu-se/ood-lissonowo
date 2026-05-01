@@ -4,8 +4,7 @@
 	import { gameStore } from '../../stores/game';
 	import { settings } from '@sudoku/stores/settings';
 	import { cursor } from '@sudoku/stores/cursor';
-	import { candidates } from '@sudoku/stores/candidates';
-	import Cell from './Cell.svelte';
+		import Cell from './Cell.svelte';
 
 	function isSelected(cursorStore, x, y) {
 		return cursorStore.x === x && cursorStore.y === y;
@@ -51,13 +50,14 @@
 					<Cell {value}
 					      cellY={y + 1}
 					      cellX={x + 1}
-					      candidates={$candidates[x + ',' + y]}
+					      candidates={$gameStore.notes[x + ',' + y]}
 					      disabled={$gamePaused}
 					      selected={isSelected($cursor, x, y)}
 					      userNumber={isUserNumber(x, y, $gameStore.originalGrid, $gameStore.grid)}
 					      sameArea={$settings.highlightCells && !isSelected($cursor, x, y) && isSameArea($cursor, x, y)}
 					      sameNumber={$settings.highlightSame && value && !isSelected($cursor, x, y) && getValueAtCursor($gameStore.grid, $cursor) === value}
 					      conflictingNumber={$settings.highlightConflicting && isInvalidCell(x, y, $gameStore.invalidCells)} />
+
 				{/each}
 			{/each}
 

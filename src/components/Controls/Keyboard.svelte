@@ -1,24 +1,36 @@
 <script>
 	import { cursor } from '@sudoku/stores/cursor';
 	import { notes } from '@sudoku/stores/notes';
-	import { candidates } from '@sudoku/stores/candidates';
 	import { gameStore } from '../../stores/game';
 
 	// TODO: Improve keyboardDisabled
 	import { keyboardDisabled } from '@sudoku/stores/keyboard';
 
+	/**
+	 * 读取当前格子的 notes，切换指定数字
+	 * 数字存在则移除，不存在则添加
+	 */
+	function toggleNotes(row, col, num) {
+		const currentNotes = $gameStore.notes[`${col},${row}`] || [];
+		const updated = currentNotes.includes(num)
+			? currentNotes.filter(n => n !== num)
+			: [...currentNotes, num].sort();
+		gameStore.setNotes(row, col, updated);
+	}
+
 	function handleKeyButton(num) {
 		if (!$keyboardDisabled && $cursor.x !== null && $cursor.y !== null) {
 			if ($notes) {
 				if (num === 0) {
-					candidates.clear($cursor);
+					gameStore.clearNotes($cursor.y, $cursor.x);
 				} else {
-					candidates.add($cursor, num);
+					toggleNotes($cursor.y, $cursor.x, num);
 				}
 				// 笔记模式下不修改实际数值
 			} else {
-				if ($candidates.hasOwnProperty($cursor.x + ',' + $cursor.y)) {
-					candidates.clear($cursor);
+				// 填入数字时清除该格的候选数
+				if ($gameStore.notes[$cursor.x + ',' + $cursor.y]) {
+					gameStore.clearNotes($cursor.y, $cursor.x);
 				}
 
 				// 使用gameStore进行猜测
