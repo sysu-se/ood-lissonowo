@@ -1,131 +1,125 @@
 import { writable } from 'svelte/store';
 import { createSudoku, createGame } from '../domain';
-import { grid as originalGrid } from '@sudoku/stores/grid';
+import { generateSudoku } from '@sudoku/sudoku';
+import { decodeSencode } from '@sudoku/sencode';
+import { difficulty } from '@sudoku/stores/difficulty';
+import { cursor } from '@sudoku/stores/cursor';
+import { timer } from '@sudoku/stores/timer';
+import { hints } from '@sudoku/stores/hints';
+import { gamePaused } from '@sudoku/stores/game';
 
 /**
- * 创建游戏store
- * @param {number[][]} initialGrid - 初始数独网格
- * @returns {Object} 游戏store
+ * 创建游戏 store 适配器
+ *
+ * 职责：
+ * - 持有 Game / Sudoku 领域对象
+ * - 对外暴露 Svelte 可消费的响应式状态（grid, originalGrid, invalidCells, won 等）
+ * - 对外暴露 UI 可调用的方法（guess, undo, redo, startNewGame, startCustomGame）
+ *
+ * 领域对象是单一真源（single source of truth），store 是响应式投影。
  */
-export function createGameStore(initialGrid) {
-  // 创建初始Sudoku和Game
-  let game = createGame({ sudoku: createSudoku(initialGrid) });
+export function createGameStore() {
+  let game = null;
 
-  // 存储初始网格，用于判断哪些是原始数字
-  let originalGridValues = initialGrid.map(row => [...row]);
-
-  // 创建writable store来存储响应式状态
-  const { subscribe, set, update } = writable({
-    grid: game.getSudoku().getGrid(),
-    originalGrid: originalGridValues,
+  const { subscribe, set } = writable({
+    grid: [],
+    originalGrid: [],
     invalidCells: [],
-    won: game.getSudoku().isComplete(),
-    canUndo: game.canUndo(),
-    canRedo: game.canRedo()
+    won: false,
+    canUndo: false,
+    canRedo: false
   });
 
-  // 更新store状态
+  /**
+   * 从当前 Game 对象刷新 store 状态
+   */
   function updateStore() {
+    if (!game) return;
+
     const sudoku = game.getSudoku();
     const grid = sudoku.getGrid();
-    
-    // 计算无效单元格
-    const invalidCells = [];
-    for (let row = 0; row < 9; row++) {
-      for (let col = 0; col < 9; col++) {
-        if (grid[row][col] !== 0) {
-          // 临时设置该单元格为0，检查其他单元格是否有效
-          const tempValue = grid[row][col];
-          grid[row][col] = 0;
-          const tempSudoku = createSudoku(grid);
-          tempSudoku.guess({ row, col, value: tempValue });
-          if (!tempSudoku.isValid()) {
-            invalidCells.push({ row, col });
-          }
-          grid[row][col] = tempValue;
-        }
-      }
-    }
 
     set({
-      grid: sudoku.getGrid(),
-      originalGrid: originalGridValues,
-      invalidCells,
-      won: sudoku.isComplete(),
+      grid,
+      originalGrid: sudoku.getOriginalGrid(),
+      invalidCells: sudoku.getConflicts(),
+      won: sudoku.isComplete() && sudoku.getConflicts().length === 0,
       canUndo: game.canUndo(),
       canRedo: game.canRedo()
     });
   }
 
-  // 暴露给UI的方法
-  const methods = {
-    /**
-     * 进行猜测
-     * @param {Object} move - 移动对象 {row, col, value}
-     */
+  /**
+   * 统一初始化流程：生成网格 -> 创建领域对象 -> 重置状态
+   * @param {number[][]} puzzle - 9x9 数独题面
+   */
+  function initGame(puzzle) {
+    // 题面即 originalGrid（不可修改的给定数字）
+    const sudoku = createSudoku(puzzle, puzzle);
+    game = createGame({ sudoku });
+
+    updateStore();
+  }
+
+  /**
+   * 开始新游戏（生成随机题面）
+   * @param {string} diff - 难度
+   */
+  function startNewGame(diff) {
+    const puzzle = generateSudoku(diff);
+
+    difficulty.set(diff);
+    cursor.reset();
+    timer.reset();
+    hints.reset();
+    gamePaused.set(false);
+    location.hash = '';
+
+    initGame(puzzle);
+  }
+
+  /**
+   * 开始自定义游戏（从 sencode 解码）
+   * @param {string} sencode
+   */
+  function startCustomGame(sencode) {
+    const puzzle = decodeSencode(sencode);
+
+    difficulty.setCustom();
+    cursor.reset();
+    timer.reset();
+    hints.reset();
+    gamePaused.set(false);
+
+    initGame(puzzle);
+  }
+
+  return {
+    subscribe,
+
+    startNewGame,
+    startCustomGame,
+
+    /** @param {{ row: number, col: number, value: number }} move */
     guess(move) {
+      if (!game) return;
       game.guess(move);
       updateStore();
     },
 
-    /**
-     * 撤销操作
-     */
     undo() {
+      if (!game) return;
       game.undo();
       updateStore();
     },
 
-    /**
-     * 重做操作
-     */
     redo() {
+      if (!game) return;
       game.redo();
-      updateStore();
-    },
-
-    /**
-     * 检查是否可以撤销
-     * @returns {boolean} 是否可以撤销
-     */
-    canUndo() {
-      return game.canUndo();
-    },
-
-    /**
-     * 检查是否可以重做
-     * @returns {boolean} 是否可以重做
-     */
-    canRedo() {
-      return game.canRedo();
-    },
-
-    /**
-     * 设置初始网格
-     * @param {number[][]} newGrid - 新的初始网格
-     */
-    setInitialGrid(newGrid) {
-      // 更新原始网格值
-      originalGridValues = newGrid.map(row => [...row]);
-      
-      // 创建新的Sudoku和Game
-      game = createGame({ sudoku: createSudoku(newGrid) });
-      
       updateStore();
     }
   };
-
-  return {
-    subscribe,
-    ...methods
-  };
 }
 
-// 导出默认store实例（使用空网格作为初始值）
-const emptyGrid = Array(9).fill().map(() => Array(9).fill(0));
-export const gameStore = createGameStore(emptyGrid);
-
-// 订阅原始grid store，当它变化时更新gameStore
-originalGrid.subscribe(newGrid => {
-  gameStore.setInitialGrid(newGrid);
-});
+// 默认 store 实例（单例）
+export const gameStore = createGameStore();

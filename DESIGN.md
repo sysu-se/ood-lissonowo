@@ -3,192 +3,243 @@
 ## 核心问题回答
 
 ### 1. Svelte 的响应式机制如何与领域对象协作？
-- **Store 作为桥梁**: 使用 `writable` store 创建 `gameStore`，作为领域对象和 UI 之间的适配器
-- **状态同步**: 当领域对象状态变化时，通过 `set()` 方法更新 store 状态
-- **自动订阅**: UI 组件使用 `$gameStore` 语法自动订阅 store 变化
-- **触发更新**: Svelte 检测到 store 状态变化后，自动重新渲染相关组件
+通过 **Store Adapter 模式**协作：
+- `gameStore`（Svelte `writable` store）持有 `Game` / `Sudoku` 领域对象，作为唯一桥梁
+- 领域对象是纯 JavaScript 闭包，不依赖 Svelte 运行时
+- 每次领域对象状态变化后，store 调用 `set()` 推送新的状态快照
+- 组件通过 `$gameStore` 自动订阅，Svelte 在 store 值变化时触发重新渲染
 
 ### 2. View 层如何消费 Sudoku / Game？
-- **数据消费**: View 层通过 `$gameStore.grid` 等响应式状态获取数独数据
-- **操作调用**: View 层通过 `gameStore.guess()`, `gameStore.undo()`, `gameStore.redo()` 等方法操作领域对象
-- **状态反馈**: View 层通过 `$gameStore.canUndo`, `$gameStore.canRedo` 等状态控制 UI 元素状态
-- **视觉区分**: View 层根据 `$gameStore.originalGrid` 区分原始数字和用户输入的数字
+- View 层**不直接消费** `Sudoku` 或 `Game`，而是消费 `gameStore`
+- `gameStore` 暴露响应式状态（grid, originalGrid, invalidCells, won 等）
+- View 层通过调用 `gameStore.guess()`、`gameStore.undo()` 等方法间接操作领域对象
+- 领域对象始终是单一真源（single source of truth），store 是它的响应式投影
 
-## 关于 Svelte 响应式机制的理解
+---
 
-### 1. 为什么修改对象内部字段后，界面不一定自动更新？
-- Svelte 的响应式系统基于赋值操作检测变化
-- 直接修改对象内部字段不会触发赋值操作，因此 Svelte 不会检测到变化
+## A. 领域对象如何被消费
 
-### 2. 为什么直接改二维数组元素，有时 Svelte 不会按预期刷新？
-- 二维数组是引用类型，直接修改数组元素不会改变数组的引用
-- Svelte 只检测引用变化，不检测内部元素变化
+### 1. View 层直接消费的是什么？
+View 层直接消费的是 **`gameStore`**（位于 `src/stores/game.js`），这是一个 Svelte `writable` store 适配器。
 
-### 3. 为什么 store 可以被 $store 消费？
-- Svelte 提供了 ` 语法糖，自动订阅 store 的变化
-- 当 store 状态变化时，Svelte 会自动更新使用 `$store` 的组件
+- 不是 `Game` 本身——View 层从不直接调用 `game.undo()` 
+- 不是 `Sudoku` 本身——View 层从不直接调用 `sudoku.guess()`
+- 所有交互都通过 `gameStore` 暴露的接口进行
 
-### 4. 为什么 $: 有时会更新，有时不会更新？
-- `$:` 语句依赖于其引用的响应式变量
-- 只有当依赖的响应式变量发生变化时，`$:` 语句才会执行
+### 2. View 层拿到的数据是什么？
 
-### 5. 为什么“间接依赖”可能导致 reactive statement 不触发？
-- Svelte 的响应式系统只追踪直接引用的变量
-- 如果通过函数调用或其他间接方式访问变量，Svelte 可能无法追踪到依赖关系
+| 状态 | 类型 | 说明 |
+|------|------|------|
+| `grid` | `number[][]` | 当前盘面（9x9） |
+| `originalGrid` | `number[][]` | 原始题面（用于区分题面数字与用户输入） |
+| `invalidCells` | `{row,col}[]` | 违反数独规则的格子坐标 |
+| `won` | `boolean` | 是否已通关 |
+| `canUndo` | `boolean` | 是否可撤销 |
+| `canRedo` | `boolean` | 是否可重做 |
 
-## 一、领域对象设计
+### 3. 用户操作如何进入领域对象？
 
-### 1. Sudoku 领域对象
+流程如下：
 
-#### 职责
-- 持有当前数独网格数据
-- 提供 `guess(...)` 接口用于输入数字
-- 提供校验能力（`isValid()` 和 `isComplete()`）
-- 提供外表化能力（`toString()` 和 `toJSON()`）
-- 支持 Undo / Redo 所需的状态克隆（`clone()`）
+```
+用户点击数字 5
+  → Keyboard.svelte 调用 gameStore.guess({ row, col, value: 5 })
+    → gameStore 调用 game.guess(move)
+      → Game 克隆当前 Sudoku，在新副本上执行 sudoku.guess(move)
+        → Sudoku 校验：坐标范围、值域、是否为题面数字
+        → Sudoku 修改内部 grid
+      → Game 将新 Sudoku 存入历史
+    → gameStore 调用 updateStore()
+      → 读取 sudoku.getGrid(), sudoku.getOriginalGrid(), sudoku.getConflicts()
+      → 调用 store.set() 推送新状态
+  → Svelte 检测到 store 变化，重新渲染 Board
+```
 
-#### 改进
-- 增加了 `isValid()` 方法，用于检查数独的有效性
-- 增加了 `isComplete()` 方法，用于检查数独是否完成
-- 确保所有方法都返回深拷贝，避免外部修改内部状态
+Undo/Redo 类似：`gameStore.undo()` → `game.undo()` → `updateStore()`
 
-### 2. Game 领域对象
+### 4. 领域对象变化后，Svelte 为什么会更新？
 
-#### 职责
-- 持有当前 `Sudoku` 对象
-- 管理历史记录，支持 Undo / Redo
-- 提供 `guess()`, `undo()`, `redo()` 方法
-- 提供 `canUndo()` 和 `canRedo()` 方法，用于 UI 状态控制
+关键机制是 **store.set() 触发订阅回调**：
 
-#### 改进
-- 改进了历史记录的管理方式，使用数组存储历史快照
-- 确保每次操作都创建新的 Sudoku 实例，避免状态污染
-- 提供了完整的 JSON 序列化和反序列化支持
-- 增加了内部属性的访问器（getter/setter），支持 gameStore 更新初始网格和反序列化操作
-- 修复了反序列化逻辑：使用 `splice(0)` 清空数组而非重新赋值，避免只读属性报错
+1. `gameStore` 内部使用 Svelte 的 `writable()` 创建 store
+2. 每次领域对象操作完成后，`updateStore()` 从领域对象读取最新状态，调用 `set(newState)` 
+3. `set()` 会通知所有订阅者（即使用了 `$gameStore` 的组件）
+4. Svelte 的 `$store` 语法在组件销毁时会自动取消订阅
 
-## 二、Svelte 接入方案
+伪代码：
+```js
+const { subscribe, set } = writable(initialState);
 
-### 1. Store Adapter 设计
+function guess(move) {
+  game.guess(move);          // 修改领域对象
+  updateStore();             // 读取新状态 → set()
+}
 
-采用 **Store Adapter** 模式，创建 `gameStore` 作为领域对象和 UI 之间的桥梁。
+function updateStore() {
+  set({
+    grid: game.getSudoku().getGrid(),
+    invalidCells: game.getSudoku().getConflicts(),
+    won: game.getSudoku().isComplete() && ...,
+    ...
+  });
+}
+```
 
-#### 核心功能
-- 内部持有 `Game` 实例
-- 对外暴露可被 Svelte 消费的响应式状态
-- 对外暴露 UI 可调用的方法
-- 订阅原始 `grid` store，自动同步初始网格
+---
 
-#### 响应式状态
-- `grid`: 当前数独网格
-- `originalGrid`: 初始数独网格，用于区分原始数字和用户输入
-- `invalidCells`: 无效单元格列表
-- `won`: 游戏是否获胜
-- `canUndo`: 是否可以撤销
-- `canRedo`: 是否可以重做
-
-#### 对外方法
-- `guess(move)`: 进行猜测
-- `undo()`: 撤销操作
-- `redo()`: 重做操作
-- `canUndo()`: 检查是否可以撤销
-- `canRedo()`: 检查是否可以重做
-- `setInitialGrid(newGrid)`: 设置初始网格
-
-### 2. 组件接入
-
-#### Board 组件
-- 从 `gameStore` 订阅 `grid`, `originalGrid` 和 `invalidCells`
-- 使用 `$gameStore.grid` 渲染数独网格
-- 使用 `$gameStore.invalidCells` 标记无效单元格
-- 根据 `$gameStore.originalGrid` 区分原始数字和用户输入的数字
-
-#### Keyboard 组件
-- 当用户点击数字按钮时，调用 `gameStore.guess()`
-- 传递当前光标位置和输入值
-
-#### ActionBar 组件
-- 当用户点击 Undo 按钮时，调用 `gameStore.undo()`
-- 当用户点击 Redo 按钮时，调用 `gameStore.redo()`
-- 根据 `$gameStore.canUndo` 和 `$gameStore.canRedo` 控制按钮状态
-
-## 三、响应式机制说明
+## B. 响应式机制说明
 
 ### 1. 依赖的 Svelte 机制
-- **Store**: 使用 `writable` store 存储响应式状态
-- **$store**: 使用 Svelte 的自动订阅语法消费 store
-- **重新赋值**: 当领域对象状态变化时，通过 `set()` 方法更新 store 状态
-- **订阅机制**: 订阅原始 `grid` store，自动同步初始网格
 
-### 2. 响应式数据流
-1. 用户在 UI 上进行操作（点击数字、Undo/Redo）
-2. 组件调用 `gameStore` 暴露的方法
-3. `gameStore` 内部调用领域对象的方法
-4. 领域对象状态变化后，`gameStore` 更新响应式状态
-5. Svelte 自动检测到状态变化，更新 UI
+本次方案依赖以下 Svelte 3 机制：
 
-### 3. 为什么直接 mutate 对象会有问题
-- Svelte 的响应式系统依赖于赋值操作来检测变化
-- 如果直接修改对象内部字段，Svelte 不会检测到变化
-- 因此，我们在 `gameStore` 中使用 `set()` 方法重新赋值，确保 Svelte 能够检测到状态变化
+- **`writable` store** — `gameStore` 的基础，提供 `subscribe` / `set` / `update`
+- **`$store` 自动订阅** — 组件中通过 `$gameStore` 自动订阅和取消订阅
+- **赋值检测** — Svelte 通过 `set()` 的赋值操作检测变化，而非深度监听对象内部
 
-## 四、改进说明
+我们没有使用 `$:` 响应式语句来驱动状态同步，因为 store 的 `set()` 是显式的、可预测的推送方式，更适合适配器场景。
 
-### 1. 相比 HW1 的改进
-- **增加了校验功能**: Sudoku 对象现在可以检查数独的有效性和完整性
-- **改进了历史管理**: Game 对象的历史记录管理更加清晰
-- **实现了 Store Adapter**: 创建了 `gameStore` 作为领域对象和 UI 之间的桥梁
-- **真正接入 UI**: 所有主要操作都通过领域对象完成，而不是直接操作数组
-- **支持初始网格同步**: 订阅原始 `grid` store，自动同步初始网格
+### 2. 哪些数据是响应式暴露给 UI 的？
 
-### 2. HW1 不足的原因
-- HW1 中的领域对象虽然设计合理，但没有真正接入 UI
-- UI 仍然直接操作数组，领域对象只在测试中使用
-- 缺少响应式机制，无法自动更新 UI
-- 缺少初始网格同步机制，无法正确显示原始数字
+| 数据 | 来源 | 用途 |
+|------|------|------|
+| `grid` | `Sudoku.getGrid()` | Board 渲染盘面 |
+| `originalGrid` | `Sudoku.getOriginalGrid()` | 区分题面数字（蓝色）与用户输入（黑色） |
+| `invalidCells` | `Sudoku.getConflicts()` | 标记冲突格子（红色高亮） |
+| `won` | `isComplete() && 无冲突` | 触发通关弹窗 |
+| `canUndo`/`canRedo` | `Game.canUndo()/canRedo()` | 控制 Undo/Redo 按钮的 disabled 状态 |
 
-### 3. 设计权衡
-- **性能 vs. 正确性**: 每次操作都创建新的 Sudoku 实例，确保状态隔离，但会增加内存使用
-- **封装 vs. 灵活性**: 领域对象封装了核心逻辑，UI 只通过 store 接口操作，提高了可维护性，但减少了直接访问内部状态的灵活性
-- **复杂度 vs. 可测试性**: 增加了 store 层，增加了系统复杂度，但提高了可测试性
-- **兼容性 vs. 侵入性**: 订阅原始 `grid` store 确保兼容性，但增加了一定的侵入性
-- **只读属性 vs. 可修改性**: 使用 getter 暴露 `history` 数组提供封装，但需要通过 `splice` 等方法原地修改，增加了代码复杂度
+### 3. 哪些状态留在领域对象内部？
 
-## 五、技术细节：只读属性与数组操作
+- **完整的历史快照数组** — `Game` 内部维护的 `history` 数组，UI 不需要直接访问
+- **历史索引** — `historyIndex` 仅在 `Game` 内部使用
+- **每个 Sudoku 的内部 grid 和 givens** — 封装在闭包中，外部只能通过方法访问
 
-### 1. 问题背景
-在实现 `createGameFromJSON` 反序列化功能时，遇到了一个技术问题：
-```javascript
-// 错误做法
-game.history = []; // TypeError: Cannot set property history of #<Object> which has only a getter
+### 4. 如果直接 mutate 内部对象，会出现什么问题？
+
+直接修改领域对象内部状态会破坏响应式更新：
+
+- **Svelte 无法检测到变化** — 因为 `writable` store 的值引用没有变，`set()` 从未被调用
+- **UI 不刷新** — 例如直接调用 `sudoku.guess(move)` 而不经过 store，grid 确实变了，但 Svelte 不知道要重新渲染
+- **历史记录混乱** — 绕过 `Game.guess()` 直接修改盘面会导致 Undo/Redo 状态不一致
+
+我们的方案通过 `updateStore()` 确保每次领域对象变化后都调用 `set()`，从而保证 UI 同步。
+
+---
+
+## C. 改进说明
+
+### 1. 相比 HW1（本轮作业的起点）改进了什么？
+
+| 改进点 | HW1 | 本轮 |
+|--------|-----|------|
+| **题面保护** | Sudoku 不区分题面数字与用户输入，玩家可修改原始题目数字 | Sudoku 增加 `originalGrid`（givens），`guess()` 会阻止修改题面数字 |
+| **单一真源** | `gameStore` 被动订阅旧 `grid` store，开局和胜利走旧路径，形成双真源 | `gameStore` 提供 `startNewGame()`/`startCustomGame()`，成为唯一入口 |
+| **冲突检测** | Store 中用错误的算法遍历每个非空格，调用不存在的 `isValid()` 方法，导致全盘标红 | 直接使用 `Sudoku.getConflicts()`，逐格独立检测冲突 |
+| **接入范围** | 只有输入和撤销重做通过领域对象，开局和胜利走旧逻辑 | 完整覆盖：开局 → 渲染 → 输入 → 撤销/重做 → 胜利检测 |
+| **Game 封装** | `getSudoku()` 返回可变引用，外部可绕过 guess 直接修改 | `getSudoku()` 返回 `clone()`，防止外部篡改 |
+| **启动流程** | Welcome.svelte 调用旧 `@sudoku/game` 模块，写入旧 `grid` store，再由订阅同步到 `gameStore` | Welcome.svelte 直接调用 `gameStore.startNewGame()`，避免中间步骤 |
+
+### 2. 为什么 HW1 的接入不足以支撑真实游戏？
+
+HW1 存在两个核心问题：
+
+1. **双真源冲突**：游戏状态同时存在于旧 store 体系和领域对象中，开局和胜利检测走旧路径，领域对象只是"局部替换"，不是真正的单一真源。这导致：
+   - 开局时领域对象被旧数据覆盖
+   - 胜利检测绕过了领域对象，仍依赖旧 derived store
+
+2. **领域对象职责不足**：`Sudoku` 没有保护题面数字的概念，玩家可以修改原始题目，这违反了数独游戏的核心规则。领域对象连基本的游戏规则都无法保障，说明"领域"还没有真正建立。
+
+### 3. 新设计的 trade-off
+
+- **性能 vs 正确性**：每次 `updateStore()` 调用 `getConflicts()` 遍历所有 81 格，时间复杂度 O(81²) 最坏情况。对 9x9 数独可以忽略不计，但如果未来扩展更大棋盘需要优化增量计算。
+- **封装 vs 调试便利性**：领域对象状态完全封装在闭包中，console.log 无法直接查看内部状态。但这也阻止了外部意外篡改。
+- **Store 快照大小**：每次 store 更新都传递完整 grid/ originalGrid/invalidCells 数组，而非只传递增量。9x9 网格数据量极小，这是合理简化。
+- **与旧系统的兼容**：保留了 `@sudoku/game` 模块的 pause/resume 等生命周期函数，避免全量重构。这意味着新旧两套导入路径并存，但数据流不再交叉。
+
+---
+
+## 四、codex-review.md 中指出的问题及修正
+
+### 问题 1：Svelte 主流程仍由旧状态体系驱动（core）
+**修正**：
+- 移除 `gameStore` 对旧 `grid` store 的订阅
+- `gameStore` 新增 `startNewGame()` / `startCustomGame()` 作为唯一开局入口
+- `App.svelte` 改为订阅 `gameStore` 而非旧的 `gameWon` derived store
+- `Welcome.svelte` 和 `Dropdown.svelte` 改为调用 `gameStore` 方法
+
+### 问题 2：领域模型无法区分题面数字与玩家输入（core）
+**修正**：
+- `createSudoku(input, originalGrid)` 新增 `originalGrid` 参数
+- `guess()` 在修改题面数字时抛出错误
+- `getOriginalGrid()` 暴露题面数据供 UI 渲染区分
+- `clone()` 和 `toJSON()` 同步保留题面信息
+
+### 问题 3：冲突检测算法会把整盘已填数字都标成错误（core）
+**修正**：
+- 移除 store 中错误的遍历和 `isValid()` 调用
+- 直接使用 `Sudoku.getConflicts()` — 该方法对每一格独立检查行/列/宫冲突
+
+### 问题 4：Game 泄漏可变内部状态（major）
+**修正**：`Game.getSudoku()` 已返回 `clone()`，防止外部直接修改盘面。
+
+### 问题 5：Store Adapter 只覆盖局部交互（major）
+**修正**：`gameStore` 现在完整覆盖：开局、输入、撤销/重做、胜利检测。
+
+### 问题 6：公开 API 的输入契约过于宽松（minor）
+**修正**：`Sudoku.guess()` 增加值域校验（0-9）和题面数字保护。
+
+---
+
+## 五、架构概览
+
+```
+┌─────────────────────────────────────────────────┐
+│                  View 层 (Svelte)                │
+│  App.svelte  Board  Keyboard  Actions  Welcome   │
+│         │  $gameStore.grid   │  gameStore.guess()│
+└─────────┼─────────────────────┼───────────────────┘
+          │                     │
+          ▼                     ▼
+┌──────────────────────────────────────────────────┐
+│          Store Adapter (src/stores/game.js)       │
+│  ┌────────────────────────────────────────────┐  │
+│  │  gameStore (writable)                      │  │
+│  │  - grid, originalGrid, invalidCells, won   │  │
+│  │  - startNewGame, guess, undo, redo         │  │
+│  └──────────────┬─────────────────────────────┘  │
+└─────────────────┼────────────────────────────────┘
+                  │  holds
+                  ▼
+┌──────────────────────────────────────────────────┐
+│        领域层 (src/domain/)                       │
+│  ┌──────────┐          ┌──────────────────────┐  │
+│  │  Sudoku  │  cloned  │  Game                │  │
+│  │  - grid  ├──────────►  - currentSudoku     │  │
+│  │  - givens│  into    │  - history[]         │  │
+│  │  - guess │  history │  - historyIndex       │  │
+│  │  - getConflicts     │  - undo/redo          │  │
+│  └──────────┘          └──────────────────────┘  │
+└──────────────────────────────────────────────────┘
 ```
 
-### 2. 原因分析
-- `history` 在 Game 对象中定义为只读 getter：`get history() { return history; }`
-- JavaScript 的 getter 默认没有 setter，因此无法重新赋值
-- 这是有意设计的封装：防止外部直接替换整个数组，但允许修改数组内容
+---
 
-### 3. 解决方案
-使用数组的 `splice` 方法原地清空数组，而不是重新赋值：
-```javascript
-// 正确做法
-game.history.splice(0); // 清空数组，保留引用
-```
+## 六、课堂讨论准备
 
-### 4. 设计意义
-- **封装性**: 外部无法替换整个 `history` 数组，确保数据一致性
-- **灵活性**: 外部可以修改数组内容（push、splice 等），满足反序列化需求
-- **安全性**: 防止意外替换整个历史记录，避免状态混乱
+### 1. View 层直接消费的是谁？
+`gameStore` — 一个 Svelte `writable` store 适配器，不是 `Game` 也不是 `Sudoku`。
 
-## 六、结论
+### 2. 为什么 UI 在领域对象变化后会刷新？
+`gameStore` 在每次操作后调用 `set()` 推送新的状态对象。Svelte 的 store 订阅机制检测到值引用变化，通知所有使用了 `$gameStore` 的组件重新渲染。
 
-通过本次改进，我们成功将领域对象真正接入了 Svelte 游戏流程，实现了：
+### 3. 响应式边界在哪里？
+边界在 `gameStore` 的 `updateStore()` 调用处。`updateStore()` 从领域对象读取数据并调用 `set()` 的瞬间，是响应式"激活"的时刻。在此之前（领域对象内部），一切都是普通 JS 赋值。
 
-1. **领域对象驱动**: 所有核心逻辑都由 `Sudoku` 和 `Game` 领域对象处理
-2. **响应式更新**: UI 能够自动响应领域对象的状态变化
-3. **清晰的职责边界**: 领域对象负责业务逻辑，UI 负责展示和用户交互
-4. **可测试性**: 领域对象可以独立测试，不依赖于 UI
-5. **完整的游戏流程**: 支持从欢迎界面选择难度，到加载初始棋盘，再到游戏过程中的各种操作
-6. **健壮的序列化**: 正确处理了只读属性的限制，确保反序列化功能正常工作
+### 4. Sudoku / Game 哪些状态对 UI 可见，哪些不可见？
+**可见**：grid、originalGrid（通过 getter），getConflicts()、isComplete() 的返回结果。
+**不可见**：内部 grid 数组的引用、givens 数组的引用、history 数组、historyIndex。
 
-这种设计方案不仅满足了本次作业的要求，也为将来的功能扩展和维护奠定了良好的基础。
+### 5. 如果将来迁移到 Svelte 5，哪一层最稳定，哪一层最可能改动？
+**最稳定**：领域层（`src/domain/`）。纯 JS 闭包，不依赖任何 Svelte 运行时。
+**最可能改动**：Store Adapter（`src/stores/game.js`）。Svelte 5 的 runes 体系（`$state`、`$derived`等）可能替代 `writable` store。如果迁移，`createGameStore` 需要重写响应式部分，但接口签名可以保持不变。

@@ -1,47 +1,55 @@
 /**
  * Game 领域对象
- * 表示一局游戏，管理历史记录和Undo/Redo操作
+ * 表示一局游戏会话，管理历史记录与 Undo/Redo
+ *
+ * 职责边界：
+ * - 持有当前 Sudoku 对象
+ * - 管理历史快照（Sudoku 深拷贝）
+ * - 提供 undo() / redo()
+ * - 提供 canUndo() / canRedo()
+ * - 作为 UI 层与领域层之间的主要接口
+ *
+ * 历史策略：快照式（每次 guess 克隆当前 Sudoku 存入 history）
+ * 理由：9x9 网格仅 81 个数字，快照代价极小；逻辑简单，状态可靠
  */
-import { createSudoku } from './sudoku';
+
+import { createSudoku, createSudokuFromJSON } from './sudoku.js';
 
 /**
- * 创建Game对象
- * @param {Object} options - 配置选项
- * @param {Sudoku} options.sudoku - Sudoku对象
- * @returns {Game} Game对象
+ * 内部工厂：用指定初始状态创建 Game
+ * @param {Object} options
+ * @param {Sudoku} options.sudoku - 当前 Sudoku 对象
+ * @param {Sudoku[]} options.history - 历史记录 (Sudoku 对象数组)
+ * @param {number} options.historyIndex - 当前历史位置
+ * @returns {Game} Game 对象
  */
-export function createGame({ sudoku }) {
+function createGameWithState({ sudoku, history, historyIndex }) {
   let currentSudoku = sudoku;
-  const history = []; // 存储历史快照
-  let historyIndex = -1; // 当前历史索引
 
-  // 初始化时保存初始状态
-  history.push(currentSudoku.clone());
-  historyIndex = 0;
-
-  /**
-   * 获取当前Sudoku对象
-   * @returns {Sudoku} 当前Sudoku对象
-   */
   function getSudoku() {
-    return currentSudoku;
+    // 返回克隆，防止调用方绕过 Game.guess() 直接修改盘面
+    return currentSudoku.clone();
   }
 
   /**
    * 进行猜测并记录历史
-   * @param {Object} move - 移动对象 {row, col, value}
+   * @param {Object} move - { row, col, value }
    */
   function guess(move) {
-    // 保存当前状态到历史
-    history.splice(historyIndex + 1); // 清除当前索引之后的历史
-    currentSudoku = currentSudoku.clone(); // 创建当前状态的副本
-    currentSudoku.guess(move); // 在副本上执行移动
-    history.push(currentSudoku); // 保存新状态
+    // 清除当前索引之后的 Redo 历史
+    history.splice(historyIndex + 1);
+
+    // 深拷贝当前状态，在新副本上执行移动
+    currentSudoku = currentSudoku.clone();
+    currentSudoku.guess(move);
+
+    // 存入历史
+    history.push(currentSudoku);
     historyIndex++;
   }
 
   /**
-   * 撤销操作
+   * 撤销最近一次操作
    */
   function undo() {
     if (canUndo()) {
@@ -51,7 +59,7 @@ export function createGame({ sudoku }) {
   }
 
   /**
-   * 重做操作
+   * 重做被撤销的操作
    */
   function redo() {
     if (canRedo()) {
@@ -62,7 +70,7 @@ export function createGame({ sudoku }) {
 
   /**
    * 检查是否可以撤销
-   * @returns {boolean} 是否可以撤销
+   * @returns {boolean}
    */
   function canUndo() {
     return historyIndex > 0;
@@ -70,20 +78,21 @@ export function createGame({ sudoku }) {
 
   /**
    * 检查是否可以重做
-   * @returns {boolean} 是否可以重做
+   * @returns {boolean}
    */
   function canRedo() {
     return historyIndex < history.length - 1;
   }
 
   /**
-   * 转换为JSON
-   * @returns {Object} Game对象的JSON表示
+   * 序列化为 JSON
+   * 只序列化 history + historyIndex，不单独存 currentSudoku
+   * 因为 currentSudoku === history[historyIndex]
+   * @returns {Object}
    */
   function toJSON() {
     return {
-      currentSudoku: currentSudoku.toJSON(),
-      history: history.map(sudoku => sudoku.toJSON()),
+      history: history.map(s => s.toJSON()),
       historyIndex
     };
   }
@@ -95,46 +104,37 @@ export function createGame({ sudoku }) {
     redo,
     canUndo,
     canRedo,
-    toJSON,
-    // 暴露内部属性，用于gameStore更新初始网格
-    get currentSudoku() {
-      return currentSudoku;
-    },
-    set currentSudoku(value) {
-      currentSudoku = value;
-    },
-    get history() {
-      return history;
-    },
-    get historyIndex() {
-      return historyIndex;
-    },
-    set historyIndex(value) {
-      historyIndex = value;
-    }
+    toJSON
   };
 }
 
 /**
- * 从JSON创建Game对象
- * @param {Object} json - Game对象的JSON表示
- * @returns {Game} Game对象
+ * 创建新游戏
+ * @param {Object} options
+ * @param {Sudoku} options.sudoku - Sudoku 对象
+ * @returns {Game}
+ */
+export function createGame({ sudoku }) {
+  return createGameWithState({
+    sudoku,
+    history: [sudoku.clone()],
+    historyIndex: 0
+  });
+}
+
+/**
+ * 从 JSON 恢复游戏（含完整历史记录）
+ * @param {Object} json - Game.toJSON() 的输出
+ * @returns {Game}
  */
 export function createGameFromJSON(json) {
-  const currentSudoku = createSudoku(json.currentSudoku);
-  const game = createGame({ sudoku: currentSudoku });
+  const history = json.history.map(sudokuJson => createSudokuFromJSON(sudokuJson));
+  const historyIndex = json.historyIndex;
+  const currentSudoku = history[historyIndex];
 
-  // 清空默认的历史记录（使用splice避免重新赋值只读属性）
-  game.history.splice(0);
-  game.historyIndex = -1;
-  
-  // 恢复历史记录
-  json.history.forEach(sudokuJson => {
-    game.history.push(createSudoku(sudokuJson));
+  return createGameWithState({
+    sudoku: currentSudoku,
+    history,
+    historyIndex
   });
-  
-  // 恢复历史索引
-  game.historyIndex = json.historyIndex;
-  
-  return game;
 }
