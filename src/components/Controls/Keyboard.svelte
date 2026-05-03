@@ -1,11 +1,19 @@
 <script>
+<<<<<<< HEAD
 	import { cursor } from '@sudoku/stores/cursor';
 	import { notes } from '@sudoku/stores/notes';
 	import { gameStore } from '../../stores/game';
+=======
+	import { userGrid } from '@sudoku/stores/grid';
+	import { cursor } from '@sudoku/stores/cursor';
+	import { notes } from '@sudoku/stores/notes';
+	import { candidates } from '@sudoku/stores/candidates';
+>>>>>>> 365567dd4a2f23598b6ca5ffd7ffba29adcb07e8
 
 	// TODO: Improve keyboardDisabled
 	import { keyboardDisabled } from '@sudoku/stores/keyboard';
 
+<<<<<<< HEAD
 	/**
 	 * 读取当前格子的 notes，切换指定数字
 	 * 数字存在则移除，不存在则添加
@@ -39,6 +47,23 @@
 					col: $cursor.x,
 					value: num
 				});
+=======
+	function handleKeyButton(num) {
+		if (!$keyboardDisabled) {
+			if ($notes) {
+				if (num === 0) {
+					candidates.clear($cursor);
+				} else {
+					candidates.add($cursor, num);
+				}
+				userGrid.set($cursor, 0);
+			} else {
+				if ($candidates.hasOwnProperty($cursor.x + ',' + $cursor.y)) {
+					candidates.clear($cursor);
+				}
+
+				userGrid.set($cursor, num);
+>>>>>>> 365567dd4a2f23598b6ca5ffd7ffba29adcb07e8
 			}
 		}
 	}
@@ -113,17 +138,27 @@
 
 <style>
 	.keyboard-grid {
+<<<<<<< HEAD
 		display: grid;
 		grid-template-rows: repeat(2, 1fr);
 		grid-template-columns: repeat(5, 1fr);
 		gap: 0.75rem;
+=======
+		@apply grid grid-rows-2 grid-cols-5 gap-3;
+>>>>>>> 365567dd4a2f23598b6ca5ffd7ffba29adcb07e8
 	}
 
 
 	.btn-key {
+<<<<<<< HEAD
 		padding-top: 1rem;
 		padding-bottom: 1rem;
 		padding-left: 0;
 		padding-right: 0;
 	}
 </style>
+=======
+		@apply py-4 px-0;
+	}
+</style>
+>>>>>>> 365567dd4a2f23598b6ca5ffd7ffba29adcb07e8

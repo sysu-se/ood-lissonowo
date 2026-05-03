@@ -119,5 +119,9 @@
 	.conflicting-number {
 		@apply text-red-600;
 	}
+<<<<<<< HEAD
 
 </style>
+=======
+</style>
+>>>>>>> 365567dd4a2f23598b6ca5ffd7ffba29adcb07e8

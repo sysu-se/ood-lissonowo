@@ -27,6 +27,7 @@
 
 <style>
 	.modal {
+<<<<<<< HEAD
 		position: fixed;
 		z-index: 40;
 		width: 100%;
@@ -71,6 +72,27 @@
 	@media (min-width: 768px) {
 		.modal-container {
 			max-width: 28rem;
+=======
+		@apply fixed z-40 w-full h-full top-0 left-0 flex items-center justify-center;
+	}
+
+	.modal-overlay {
+		@apply fixed z-40 inset-0 h-full w-full bg-black bg-opacity-50 outline-none cursor-default;
+	}
+
+	.modal-container {
+		@apply z-50 bg-gray-custom w-11/12 mx-auto rounded-xl shadow-lg overflow-y-auto;
+	}
+
+	.modal-content {
+		@apply flex flex-col p-6 text-left;
+	}
+
+
+	@screen md {
+		.modal-container {
+			@apply max-w-md;
+>>>>>>> 365567dd4a2f23598b6ca5ffd7ffba29adcb07e8
 		}
 	}
 </style>

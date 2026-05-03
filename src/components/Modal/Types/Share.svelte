@@ -2,14 +2,22 @@
 	import { onMount } from 'svelte';
 	import { BASE_URL } from '@sudoku/constants';
 	import { modal } from '@sudoku/stores/modal';
+<<<<<<< HEAD
 	import { encodeSudoku } from '@sudoku/sencode';
 	import { gameStore } from '../../../stores/game';
+=======
+	import { grid } from '@sudoku/stores/grid';
+>>>>>>> 365567dd4a2f23598b6ca5ffd7ffba29adcb07e8
 	import Clipboard from '../../Utils/Clipboard.svelte';
 
 	export let data = {};
 	export let hideModal;
 
+<<<<<<< HEAD
 	$: sencode = $gameStore.grid && $gameStore.grid.length ? encodeSudoku($gameStore.grid) : '';
+=======
+	const sencode = grid.getSencode($grid);
+>>>>>>> 365567dd4a2f23598b6ca5ffd7ffba29adcb07e8
 
 	const link = BASE_URL + '#' + sencode;
 	const encodedLink = encodeURIComponent(link);

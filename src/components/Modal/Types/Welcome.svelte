@@ -1,8 +1,14 @@
 <script>
 	import { difficulty as difficultyStore } from '@sudoku/stores/difficulty';
+<<<<<<< HEAD
 	import { validateSencode } from '@sudoku/sencode';
 	import { DIFFICULTIES } from '@sudoku/constants';
 	import { gameStore } from '../../../stores/game';
+=======
+	import { startNew, startCustom } from '@sudoku/game';
+	import { validateSencode } from '@sudoku/sencode';
+	import { DIFFICULTIES } from '@sudoku/constants';
+>>>>>>> 365567dd4a2f23598b6ca5ffd7ffba29adcb07e8
 
 	export let data = {};
 	export let hideModal;
@@ -15,9 +21,15 @@
 
 	function handleStart() {
 		if (validateSencode(sencode)) {
+<<<<<<< HEAD
 			gameStore.startCustomGame(sencode);
 		} else {
 			gameStore.startNewGame(difficulty);
+=======
+			startCustom(sencode);
+		} else {
+			startNew(difficulty);
+>>>>>>> 365567dd4a2f23598b6ca5ffd7ffba29adcb07e8
 		}
 
 		hideModal();

@@ -5,7 +5,10 @@
 	import { slide, fade } from 'svelte/transition';
 	import { DIFFICULTIES, DROPDOWN_DURATION, DIFFICULTY_CUSTOM } from '@sudoku/constants';
 	import { difficulty } from '@sudoku/stores/difficulty';
+<<<<<<< HEAD
 	import { gameStore } from '../../stores/game';
+=======
+>>>>>>> 365567dd4a2f23598b6ca5ffd7ffba29adcb07e8
 
 	let dropdownVisible = false;
 
@@ -19,7 +22,11 @@
 			button: 'Continue',
 			onHide: game.resume,
 			callback: () => {
+<<<<<<< HEAD
 				gameStore.startNewGame(difficultyValue);
+=======
+				game.startNew(difficultyValue);
+>>>>>>> 365567dd4a2f23598b6ca5ffd7ffba29adcb07e8
 			},
 		});
 	}
@@ -50,7 +57,11 @@
 			button: 'Start',
 			onHide: game.resume,
 			callback: (value) => {
+<<<<<<< HEAD
 				gameStore.startCustomGame(value);
+=======
+				game.startCustom(value);
+>>>>>>> 365567dd4a2f23598b6ca5ffd7ffba29adcb07e8
 			},
 			validate: validateSencode
 		});
